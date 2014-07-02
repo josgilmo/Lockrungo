@@ -11,7 +11,7 @@ import (
     "os"
     "C"
 //	"log"
-//    "os/exec"
+    "os/exec"
 )
 
 
@@ -63,6 +63,10 @@ func main() {
     }
 // https://gist.github.com/wofeiwo/3634357
 ret, ret2, err := syscall.RawSyscall(syscall.SYS_FORK, 0, 0, 0)
+    if ret > 0 {
+        cmd := exec.Command("sleep", "1")
+        err = cmd.Run()
+    }
     fmt.Println("pid", ret)
     fmt.Println(ret2)
 /*
