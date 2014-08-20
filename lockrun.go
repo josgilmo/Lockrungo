@@ -1,108 +1,169 @@
+/**
+ * Open Source Initiative OSI - The MIT License (MIT):Licensing
+ *
+ * The MIT License (MIT)
+ * Copyright (c) 2014 José Gil (josgilmo@gmail.com)
+ * Copyright (c) 2014 Diego Campoy (manrash@gmail.com)
+ *
+ * Strongly based on Stephen J. Friedl lockrun (http://www.unixwiz.net/tools/)
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy of
+ * this software and associated documentation files (the "Software"), to deal in
+ * the Software without restriction, including without limitation the rights to
+ * use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+ * of the Software, and to permit persons to whom the Software is furnished to do
+ * so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in all
+ * copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+ * SOFTWARE.
+ */
+
 package main
- 
+
 import (
-//    "bytes"
-//    "log"
-//	"bufio"
 	"flag"
-//	"strconv"
-    "syscall"
 	"fmt"
-    "os"
-    "C"
-//	"log"
-    "os/exec"
+	"log"
+	"os"
+	"os/exec"
+	"syscall"
+	"time"
 )
 
+type params struct {
+	showHelp     bool
+	showVersion  bool
+	lockFilename string
+	verbose      bool
+	quiet        bool
+	wait         bool
+	sleep        int
+	retries      int
+	maxtime      int
+	commandInfo  []string
+}
+
+func parse() params {
+
+	var p params
+
+	flag.BoolVar(&p.showHelp, "help", false, "Show this brief help listing")
+	flag.BoolVar(&p.showVersion, "version", false, "Report the version info")
+	flag.BoolVar(&p.verbose, "verbose", false, "Show a bit more runtime debugging")
+	flag.BoolVar(&p.quiet, "quiet", false, "Exit quietly (and with success) if locked")
+	flag.StringVar(&p.lockFilename, "lockfile", "", "File for lock")
+	flag.BoolVar(&p.wait, "wait", false, "Wait for lockfile to appear (else exit on lock)")
+
+	flag.IntVar(&p.sleep, "sleep", 2, "Sleep for <T> seconds on each wait loop")
+	flag.IntVar(&p.retries, "retries", 5, "Attempts <N> retries in each wait loop")
+	flag.IntVar(&p.maxtime, "maxtime", 10, "Wait for at most <T> seconds for a lock, then exit")
+
+	flag.Parse()
+	p.commandInfo = flag.Args()
+
+	if p.lockFilename == "" {
+		fmt.Println("--lockfile option can't be empty")
+		os.Exit(1)
+	}
+
+	return p
+}
 
 func main() {
 
-    lockfile := flag.String("lockfile", "", "File for lock")
+	p := parse()
 
-    maxtime := flag.Int("maxtime", 60, "Time for execute the process in secods") 
-   
-    wait := flag.Bool("wait", false, "Time for execute the process in secods") 
+	if p.showHelp {
+		showHelp()
+	} else if p.showVersion {
+		showVersion()
+	} else {
+		tryLockAndRun(p)
+	}
+}
 
-    sleep := flag.Int("sleep", 60, "Time for wait in seconds if the var wait is true") 
+func tryLockAndRun(p params) {
+	// Opening log file
+	file, err := os.OpenFile(p.lockFilename, os.O_CREATE|os.O_RDWR, 0666)
+	if err != nil {
+		log.Fatalf("Unable to write lockfile: %s", p.lockFilename)
+	}
 
-    retries := flag.Int("retries", 60, "Time for wait in seconds if the var wait is true") 
+	// Trying to lock file
+	attempts := 0
+	for {
+		attempts++
+		err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
+		if err == nil {
+			log.Printf("Locking...")
+			break
+		}
 
-    verbose := flag.Bool("verbose", false, "Verbose option") 
+		if p.wait == false {
+			fmt.Printf("ERROR: cannot launch %s - run is locked", "TODO")
+			os.Exit(1)
+		} else {
+			log.Printf("Attempt %d failed - sleeping %d seconds", attempts, p.sleep)
+			time.Sleep(time.Duration(p.sleep) * time.Second)
 
-    quiet := flag.Bool("quiet", false, "Quiet option") 
+			if attempts >= p.retries {
+				fmt.Printf("ERROR: cannot launch %s - run is locked (after %d attempts", "TODO", attempts)
+				os.Exit(1)
+			}
+		}
+	}
 
-    flag.Parse() 
+	if err != nil {
+		log.Fatalf("Locking error: %v", err)
+	}
 
-    attemtps := 0
-    wait_for_lock := false
-    
+	var procAttr os.ProcAttr
+	procAttr.Files = []*os.File{nil, os.Stdout, os.Stderr}
 
-    if *lockfile == "" {
-       fmt.Println("--lockfile option can't be empty")
-       os.Exit(1) 
-    }
+	command, err4 := exec.LookPath(p.commandInfo[0])
+	if err4 != nil {
+		command = p.commandInfo[0]
+	}
 
-    lfd, err := os.OpenFile("/tmp/ttt.txt", os.O_CREATE|os.O_RDWR, 0666 )  
-    if err!=nil {
+	process, err2 := os.StartProcess(command, p.commandInfo, &procAttr)
+	if err2 != nil {
+		fmt.Printf("ERROR: %s\n", err2)
+	} else {
+		_, err3 := process.Wait()
+		if err3 != nil {
+			fmt.Printf("ERROR: %s\n", err3)
+		}
+	}
 
-    }
+	log.Printf("Finish!")
+}
 
-    lfd.WriteString("locking")
-    for {
-        if syscall.Flock(int(lfd.Fd()), syscall.F_TLOCK) == nil {
-            break
-        }
-        attemtps = attemtps+1
-        if !wait_for_lock {
-            if *quiet==true {
-                panic("Bye")
-            } else {
-                fmt.Println("ERROR: cannot launch  - run is locked");
-            }
-        }
-    }
-// https://gist.github.com/wofeiwo/3634357
-ret, ret2, err := syscall.RawSyscall(syscall.SYS_FORK, 0, 0, 0)
-    if ret > 0 {
-        cmd := exec.Command("sleep", "1")
-        err = cmd.Run()
-    }
-    fmt.Println("pid", ret)
-    fmt.Println(ret2)
-/*
-    arr := []string{"/tmp/ppp.ttt"}
-    var procAttr syscall.ProcAttr
-fmt.Println(procAttr)
-    procAttr.Files = []*os.File{nil, nil, nil}
-    pid, err := syscall.ForkExec("/bin/touch", arr, &procAttr )
-    w, err := syscall.Wait4(pid,nil, 0, nil)
-fmt.Println(w)
-    if pid == 0 {
-fmt.Println("Parent process")
-    } else {
+func showHelp() {
+	fmt.Println(`Usage: lockrun [options] -- command args...
 
-    }
+    --help        Show this brief help listing
+    --version     Report the version info
+    --            Mark the end of lockrun options; command follows
+    --verbose     Show a bit more runtime debugging
+    --quiet       Exit quietly (and with success) if locked
+    --lockfile=F  Specify lockfile as file <F>
+    --wait        Wait for lockfile to appear (else exit on lock)
 
-fmt.Println(pid)
-*/
-fmt.Println(err)
-    /*
+ Options with --wait:
+    --sleep=T     Sleep for <T> seconds on each wait loop
+    --retries=N   Attempt <N> retries in each wait loop
+    --maxtime=T   Wait for at most <T> seconds for a lock, then exit
+`)
+}
 
-    fmt.Printf("hello, world %s \n", *lockfile)
-    cmd := exec.Command("sleep", "1")
-    var out bytes.Buffer
-    cmd.Stdout = &out
-    err = cmd.Run()
-    if err != nil {
-        log.Fatal(err)
-    }
-*/
-
-//     fmt.Printf("in all caps: %s\n", out.String())
-    fmt.Println("maxtime : ", maxtime)
-    fmt.Println("wait : ", wait)
-    fmt.Println("sleep : ", sleep)
-    fmt.Println("retries : ", retries)
-    fmt.Println("verbose : ", verbose)
-    fmt.Println("quiet : ", quiet)
+func showVersion() {
+	fmt.Println("v0.0.1")
 }
