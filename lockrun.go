@@ -69,6 +69,16 @@ func parse() params {
 	flag.Parse()
 	p.commandInfo = flag.Args()
 
+    if p.showHelp || len(p.commandInfo)==0 {
+        showHelp() 
+        os.Exit(1)
+    }
+
+    if p.showVersion {
+        showVersion()
+        os.Exit(1)
+    }
+
 	if p.lockFilename == "" {
 		fmt.Println("--lockfile option can't be empty")
 		os.Exit(1)
