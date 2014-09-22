@@ -112,7 +112,9 @@ func tryLockAndRun(p params) {
 		attempts++
 		err = syscall.Flock(int(file.Fd()), syscall.LOCK_EX|syscall.LOCK_NB)
 		if err == nil {
-			log.Printf("Locking...")
+            if p.verbose == true { 
+    			log.Printf("Locking...")
+            }
 			break
 		}
 
@@ -120,7 +122,9 @@ func tryLockAndRun(p params) {
 			fmt.Printf("ERROR: cannot launch %s - run is locked", "TODO")
 			os.Exit(1)
 		} else {
-			log.Printf("Attempt %d failed - sleeping %d seconds", attempts, p.sleep)
+            if p.verbose  {
+    			log.Printf("Attempt %d failed - sleeping %d seconds", attempts, p.sleep)
+            }
 			time.Sleep(time.Duration(p.sleep) * time.Second)
 
 			if attempts >= p.retries {
